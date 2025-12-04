@@ -1,9 +1,8 @@
 import pygame
 import random
-import sys
+# Không cần import sys nữa vì chúng ta không gọi sys.exit()
 
-# --- Initialization ---
-pygame.init()
+
 
 # --- Game Constants ---
 SCREEN_WIDTH = 800
@@ -20,65 +19,75 @@ YELLOW = (255, 255, 0)
 BLUE = (0, 100, 255)
 
 # --- Game Setup ---
-screen = pygame.display.set_mode(SCREEN_SIZE)
-pygame.display.set_caption(CAPTION)
-clock = pygame.time.Clock()
-font_large = pygame.font.Font(None, 100)
-font_medium = pygame.font.Font(None, 48)
-font_small = pygame.font.Font(None, 36)
+# Khởi tạo các biến global cần thiết
+# Khởi tạo màn hình, clock, và fonts chỉ một lần khi hàm start_game_1 được gọi
+screen = None 
+clock = None
+font_large = None
+font_medium = None
+font_small = None
 
 # --- Sound Setup (Game Over Music ONLY) ---
+SOUNDS_LOADED = False
 try:
-    GAME_OVER_MUSIC_FILE = 'gameover.mp3' # Ensure this file exists
-    SOUNDS_LOADED = True
     pygame.mixer.init()
+    SOUNDS_LOADED = True
 except pygame.error:
     print("Warning: Failed to initialize audio mixer. Game will run without Game Over music.")
-    SOUNDS_LOADED = False
 
 # --- Utility Functions ---
 
 def draw_text(surface, text, font, color, x, y):
+    """Vẽ chữ lên màn hình."""
     text_surface = font.render(text, True, color)
     text_rect = text_surface.get_rect()
     text_rect.center = (x, y)
     surface.blit(text_surface, text_rect)
 
 def game_over_screen(score):
+    """Màn hình Game Over. Trả về True nếu muốn Restart, False nếu muốn Quit."""
+    global screen, clock, font_large, font_medium, font_small, SOUNDS_LOADED
+    
     if SOUNDS_LOADED:
         try:
-            pygame.mixer.music.load("Downloads/gameover.mp3")
-            pygame.mixer.music.play(-1) # Play music in a loop
-        except pygame.error:
-            print("Downloads/gameover.mp3")
+            # Lưu ý: Cần đảm bảo file 'Downloads/gameover.mp3' tồn tại
+            pygame.mixer.music.load("Downloads/gameover.mp3") 
+            pygame.mixer.music.play(-1)
+        except pygame.error as e:
+            print(f"Error loading music: {e}")
 
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                # Đóng cửa sổ game và trả về False để thoát vòng lặp chính
+                if SOUNDS_LOADED: pygame.mixer.music.stop()
+                return False 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    if SOUNDS_LOADED:
-                        pygame.mixer.music.stop()
-                    return True # Restart game
+                    # Restart game
+                    if SOUNDS_LOADED: pygame.mixer.music.stop()
+                    return True 
                 if event.key == pygame.K_ESCAPE:
-                    pygame.quit()
-                    sys.exit()
+                    # Thoát game và trả về False
+                    if SOUNDS_LOADED: pygame.mixer.music.stop()
+                    return False
         
         screen.fill(BLACK)
         draw_text(screen, "TIME'S UP!", font_large, RED, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 4)
         draw_text(screen, f"Score: {score}", font_medium, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
         draw_text(screen, "Press [SPACE] to Restart", font_small, YELLOW, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4)
-        draw_text(screen, "Press [ESC] to Quit", font_small, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4 + 40)
+        draw_text(screen, "Press [ESC] or [X] to Return to Main App", font_small, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4 + 40)
         
         pygame.display.flip()
         clock.tick(15)
+        
+    return False # Trường hợp vòng lặp bị thoát bất ngờ
 
 # --- Game Logic Functions ---
 def generate_equation(score):
-    # Increase complexity based on score
+    """Tạo ra một phương trình mới."""
+    # Giữ nguyên logic phức tạp của bạn
     if score < 10:
         a = random.randrange(1, 9)
         b = random.randrange(1, 9)
@@ -88,7 +97,6 @@ def generate_equation(score):
         b = random.randrange(1, 10)
         op = random.choice(['+', '-'])
     else:
-        # Higher range and includes simple multiplication
         a = random.randrange(5, 20)
         b = random.randrange(1, 15)
         op = random.choice(['+', '-', '*'])
@@ -96,35 +104,32 @@ def generate_equation(score):
     if op == '+':
         result = a + b
     elif op == '-':
-        # Ensure result is non-negative and keep it simple
         if a < b: a, b = b, a 
         result = a - b
     elif op == '*':
-        # Keep multiplication small for quick mental math
         a = random.randrange(1, 6)
         b = random.randrange(1, 6)
         result = a * b
     
-    # We only accept single digit answers (0-9)
     if result < 0 or result > 9:
-        return generate_equation(score) # Regenerate if result is outside 0-9
+        return generate_equation(score)
         
     equation_str = f"{a} {op} {b}"
     return equation_str, result
 
 # --- Main Game Loop ---
 def main_game():
+    """Chạy vòng lặp chính của trò chơi."""
+    global screen, clock, SOUNDS_LOADED
+    
     if SOUNDS_LOADED:
         pygame.mixer.music.stop()
 
     score = 0
-    
-    # Timer variables
-    MAX_TIME_MS = 2000 # 2 seconds base time limit
+    MAX_TIME_MS = 2000
     time_left_ms = MAX_TIME_MS
     start_time = pygame.time.get_ticks()
     
-    # Equation state
     equation_str, correct_answer = generate_equation(score)
     input_received = False
     
@@ -132,34 +137,33 @@ def main_game():
     while game_running:
         current_time = pygame.time.get_ticks()
         
-        # Calculate time left
         elapsed_time = current_time - start_time
         time_left_ms = MAX_TIME_MS - elapsed_time
         
         # 1. Input/Events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                # Dừng vòng lặp game và trả về False, không thoát ứng dụng
+                game_running = False 
+                break 
             
             if event.type == pygame.KEYDOWN:
                 key_name = pygame.key.name(event.key)
                 
                 if key_name.isdigit():
-                    # Player answered with a digit key
                     player_answer = int(key_name)
                     
                     if player_answer == correct_answer:
-                        # Correct Answer!
                         score += 1
                         input_received = True
                     else:
-                        # Incorrect Answer!
                         game_running = False
                         break
-
-        # 2. Update Game State
         
+        # 2. Update Game State
+        if not game_running: # Xử lý thoát game ngay lập tức
+             break
+             
         # Check for Time Over
         if time_left_ms <= 0:
             game_running = False
@@ -167,34 +171,24 @@ def main_game():
 
         # Check for successful input
         if input_received:
-            # Generate new equation
             equation_str, correct_answer = generate_equation(score)
-            
-            # Reset and reduce timer for next round (increase difficulty)
-            MAX_TIME_MS = max(500, MAX_TIME_MS - 50) # Minimum time limit of 0.5 seconds
+            MAX_TIME_MS = max(500, MAX_TIME_MS - 50)
             start_time = pygame.time.get_ticks()
             input_received = False
         
         # 3. Draw/Render
         screen.fill(BLACK)
         
-        # Draw Score
         draw_text(screen, f"Score: {score}", font_medium, WHITE, SCREEN_WIDTH / 2, 50)
-        
-        # Draw Equation
         draw_text(screen, equation_str + " = ?", font_large, YELLOW, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 50)
-        
-        # Draw Instruction
         draw_text(screen, "Type the single-digit answer (0-9) fast!", font_small, GREEN, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50)
 
-        # Draw Timer Bar (Visual focus on the shrinking bar)
+        # Draw Timer Bar
         BAR_WIDTH = SCREEN_WIDTH * 0.8
         BAR_HEIGHT = 20
-        
         time_ratio = max(0, time_left_ms / MAX_TIME_MS)
         current_bar_width = BAR_WIDTH * time_ratio
         
-        # Determine color based on time left (Green -> Yellow -> Red)
         if time_ratio > 0.6:
             bar_color = BLUE
         elif time_ratio > 0.3:
@@ -202,22 +196,46 @@ def main_game():
         else:
             bar_color = RED
             
-        # Background bar
         bg_rect = pygame.Rect((SCREEN_WIDTH - BAR_WIDTH) / 2, SCREEN_HEIGHT - 100, BAR_WIDTH, BAR_HEIGHT)
-        pygame.draw.rect(screen, WHITE, bg_rect, 2) # Outline
-
-        # Foreground time bar
+        pygame.draw.rect(screen, WHITE, bg_rect, 2)
         fg_rect = pygame.Rect((SCREEN_WIDTH - BAR_WIDTH) / 2, SCREEN_HEIGHT - 100, current_bar_width, BAR_HEIGHT)
         pygame.draw.rect(screen, bar_color, fg_rect)
         
-        # Update display
         pygame.display.flip()
-        
-        # Control game speed
         clock.tick(60)
 
-    # Game Over logic (Timer ran out or incorrect answer)
-    return game_over_screen(score)
+    # Game Over logic
+    if not game_running and time_left_ms <= 0:
+        return game_over_screen(score)
+    # Nếu thoát bằng cách nhấn X (pygame.QUIT) hoặc ESC, game_running là False và ta thoát luôn
+    return False
 
-while True:
-    main_game()
+def start_game_1():
+    pygame.init()
+    pygame.font.init()
+
+    global font_large, font_medium, font_small, clock, screen
+    font_large = pygame.font.Font(None, 74)
+    font_medium = pygame.font.Font(None, 36)
+    font_small = pygame.font.Font(None, 24)
+    # Khởi tạo các biến Pygame khi hàm được gọi
+    if screen is None:
+        screen = pygame.display.set_mode(SCREEN_SIZE)
+        pygame.display.set_caption(CAPTION)
+        clock = pygame.time.Clock()
+        font_large = pygame.font.Font(None, 100)
+        font_medium = pygame.font.Font(None, 48)
+        font_small = pygame.font.Font(None, 36)
+        
+    running = True
+    while running:
+        should_restart = main_game()
+        if not should_restart:
+            running = False
+
+    # Dọn dẹp Pygame trước khi trả lại quyền điều khiển
+    pygame.quit()
+    # Không gọi sys.exit() ở đây!
+    return
+
+# Bỏ vòng lặp while True: main_game() ở cuối file để nó không tự chạy khi import

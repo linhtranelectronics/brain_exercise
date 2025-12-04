@@ -311,15 +311,16 @@ void loop() {
     attention  = random(0, 100);
     meditation = random(0, 100);
     blink      = random(0, 2);
-
-    Serial.print(poorSignal); Serial.print(", ");
-    Serial.print(attention); Serial.print(", ");
-    Serial.print(meditation); Serial.print(", ");
-    Serial.println(blink);
+// Dùng snprintf để định dạng chuỗi nhanh hơn
+    char logBuffer[50];
+    snprintf(logBuffer, 50, "%d,%d,%d,%d", 
+             poorSignal, attention, meditation, blink);
+    
+    Serial.println(logBuffer); // Chỉ gọi Serial.println MỘT LẦN
 
     displayOnLCD();  // <-- hiển thị lên LCD
 
-    digitalWrite(2, !digitalRead(2));
+   // digitalWrite(2, !digitalRead(2));
     lastPrint = millis();
   }
 }
