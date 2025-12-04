@@ -1,311 +1,469 @@
-import tkinter as tk
-from tkinter import messagebox
-import random
 import pygame
-import os
-import time
+import random
+import sys
+import math
 
-# **************************************************
-# MÔ PHỎNG LỚP SERIALDATA (Dùng chung từ trò chơi trước)
-# **************************************************
-class SerialData:
+# Khởi tạo Pygame
+pygame.init()
+
+# --- Configuration ---
+SCREEN_WIDTH = 900                     
+SCREEN_HEIGHT = 670                    
+CAPTION = "Lane Master: Focus Drive"    
+FPS = 60
+
+# --- Colors (RGB) ---
+COLOR_BLACK = (0, 0, 0)
+COLOR_WHITE = (255, 255, 255)
+COLOR_GREY = (150, 150, 150)
+COLOR_YELLOW = (255, 255, 0)
+COLOR_BLUE = (0, 0, 255)
+COLOR_RED = (255, 0, 0)
+COLOR_GREEN = (0, 200, 0)
+COLOR_PURPLE = (150, 0, 200)
+
+# --- Game Stats ---
+LANE_WIDTH = SCREEN_WIDTH // 3          
+PLAYER_LANE = 1                         
+PLAYER_SPEED = 6                        
+GAME_SPEED = 6                          
+MAX_HEALTH = 3
+
+# --- Collectibles Config ---
+COLLECTIBLE_SHAPES = ["CIRCLE", "SQUARE", "TRIANGLE"]
+COLLECTIBLE_COLORS = {
+    "RED": COLOR_RED,
+    "BLUE": COLOR_BLUE,
+    "GREEN": COLOR_GREEN,
+    "YELLOW": COLOR_YELLOW
+}
+SHAPE_SIZE = 30 
+SPAWN_INTERVAL = 1000 
+TARGET_CHANGE_INTERVAL = 10000 
+
+# Set up screen
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption(CAPTION)
+clock = pygame.time.Clock()
+
+font_large = pygame.font.Font(None, 80) 
+font_medium = pygame.font.Font(None, 40)
+font_small = pygame.font.Font(None, 28)
+
+# --- Game State Management ---
+class GameState:
+    MENU = 0
+    PLAYING = 1
+    PAUSED = 2
+    GAME_OVER = 3
+    FOCUS_TIPS = 4
+
+# --- Player Car Class (ĐÃ SỬA: Bỏ logic di chuyển trong update) ---
+class PlayerCar(pygame.sprite.Sprite):
     def __init__(self):
-        self.attention = 0
-        self.max_attention = 0 
-        self.poor_signal = 0 
-
-ReadSerial = SerialData() 
-# **************************************************
-
-# --- CẤU HÌNH TRÒ CHƠI ---
-GO_COLOR_SPACE = "blue"   # Xanh -> Nhấn Space (Tín hiệu Go 1)
-GO_COLOR_ENTER = "red"    # Đỏ -> Nhấn Enter (Tín hiệu Go 2)
-
-COLORS = [GO_COLOR_SPACE, GO_COLOR_ENTER]
-
-INTERVAL_MIN_MS = 1000  # Thời gian tối thiểu giữa các lần xuất hiện
-INTERVAL_MAX_MS = 2000  # Thời gian tối đa giữa các lần xuất hiện
-MAX_TRIALS = 40         # Tổng số lần thử (lượt)
-
-ATTENTION_UPDATE_MS = 100 # Cập nhật hiển thị Attention
-
-# --- CẤU HÌNH GIAO DIỆN ĐÃ SỬA ---
-CIRCLE_SIZE = 200 # ĐÃ SỬA: Đường kính chấm tròn (từ 100px lên 200px)
-FADE_TIME_MS = 200 # Thời gian hiệu ứng Fade
-
-# --- KHỞI TẠO PYGAME CHO ÂM THANH ---
-SOUND_DIR = "sounds"
-
-try:
-    pygame.mixer.init()
-    SOUND_CORRECT = pygame.mixer.Sound(os.path.join(SOUND_DIR, "ding.mp3"))
-    SOUND_INCORRECT = pygame.mixer.Sound(os.path.join(SOUND_DIR, "buzz.mp3"))
-    SOUND_CORRECT_PLAY = lambda: SOUND_CORRECT.play()
-    SOUND_INCORRECT_PLAY = lambda: SOUND_INCORRECT.play()
-except pygame.error as e:
-    print(f"Lỗi Pygame/âm thanh: {e}")
-    SOUND_CORRECT_PLAY = lambda: print("DING!") 
-    SOUND_INCORRECT_PLAY = lambda: print("BUZZ!") 
-
-# --- BIẾN LƯU TRỮ TRẠNG THÁI ---
-game_running = False
-current_trial = 0
-current_color = None
-timer_id = None
-time_start = 0 
-
-# --- KẾT QUẢ TEST ---
-rt_list = []      
-hit_count = 0     
-miss_count = 0    
-error_count = 0   
-
-# --- THIẾT LẬP GIAO DIỆN TKINTER ---
-root = tk.Tk()
-root.title("Phân Biệt Tín Hiệu: Xanh/Đỏ")
-root.attributes('-fullscreen', True) 
-root.config(bg="black")
-
-# Nhãn hiển thị ATTENTION (Góc trái trên cùng)
-attention_label = tk.Label(root, text="Attention: N/A", font=("Arial", 20, "bold"), 
-                           fg="cyan", bg="black", anchor='nw')
-attention_label.place(x=10, y=10)
-
-# Vùng chứa Canvas cho hình tròn
-center_frame = tk.Frame(root, bg="black")
-center_frame.pack(expand=True)
-# Kích thước Canvas ban đầu để chứa luật chơi (tăng nhẹ theo font mới)
-canvas = tk.Canvas(center_frame, width=700, height=400, bg="black", highlightthickness=0)
-canvas.pack()
-
-# Nút BẮT ĐẦU (ĐÃ SỬA kích thước chữ)
-start_button = tk.Button(root, text="BẮT ĐẦU", font=("Arial", 40, "bold"), 
-                         fg="white", bg="#4CAF50", padx=20, pady=10, 
-                         command=lambda: start_game(None))
-start_button.place(relx=0.5, rely=0.85, anchor=tk.CENTER)
-
-# Nhãn hiển thị trạng thái và hướng dẫn
-status_label = tk.Label(root, text="", font=("Arial", 28), fg="white", bg="black")
-status_label.pack(side=tk.BOTTOM, pady=50)
-
-# --- CÁC HÀM TÍCH HỢP ATTENTION ---
-
-def update_attention_display():
-    """Hàm cập nhật hiển thị Attention (gọi mỗi 100ms)."""
-    current_attention = ReadSerial.attention
-    
-    if game_running and current_attention > ReadSerial.max_attention:
-         ReadSerial.max_attention = current_attention
-         
-    if game_running:
-        attention_label.config(text=f"Attention: {current_attention}/100")
-    else:
-        attention_label.config(text="Attention: N/A")
-
-    root.after(ATTENTION_UPDATE_MS, update_attention_display)
-
-# --- CÁC HÀM TRÒ CHƠI ---
-
-def get_next_color():
-    """Chọn ngẫu nhiên màu Xanh hoặc Đỏ."""
-    return random.choice(COLORS)
-
-def start_trial():
-    """Xuất hiện tín hiệu (màu) và bắt đầu đếm thời gian."""
-    global current_color, time_start, current_trial, timer_id
-
-    if not game_running: return
-
-    # 1. Kiểm tra giới hạn lượt
-    if current_trial >= MAX_TRIALS:
-        stop_game(is_finished=True)
-        return
-
-    current_trial += 1
-    
-    # 2. Tạo màu mới và hiển thị
-    current_color = get_next_color()
-    
-    canvas.delete("all")
-    
-    # Vẽ hình tròn mới (Fade-in)
-    canvas.create_oval(0, 0, CIRCLE_SIZE, CIRCLE_SIZE, fill=current_color, tags="circle")
-    
-    # 3. Ghi nhận thời điểm bắt đầu
-    time_start = time.time()
-    
-    # 4. Cập nhật trạng thái
-    action = "SPACE" if current_color == GO_COLOR_SPACE else "ENTER"
-    status_label.config(text=f"Lượt: {current_trial}/{MAX_TRIALS} | Tín hiệu {current_color.upper()}! Nhấn {action}!")
-    
-    # 5. Đặt hẹn giờ để kết thúc lượt chơi
-    random_interval = random.randint(INTERVAL_MIN_MS, INTERVAL_MAX_MS)
-    timer_id = root.after(random_interval, end_trial)
-
-def end_trial():
-    """Ẩn tín hiệu, ghi nhận bỏ lỡ (Miss) và chuyển lượt."""
-    global current_color, timer_id, miss_count
-
-    if not game_running: return
-
-    # 1. Xóa tín hiệu (Fade-out)
-    canvas.delete("all")
-    
-    # 2. Ghi nhận bỏ lỡ (Miss)
-    if current_color is not None:
-        miss_count += 1
-        SOUND_INCORRECT_PLAY()
-        status_label.config(text=f"Lượt: {current_trial}/{MAX_TRIALS} | ❌ BỎ LỠ! (+{miss_count} Miss)")
-    
-    current_color = None 
-
-    # 3. Bắt đầu lượt mới sau FADE_TIME_MS (tạo khoảng nghỉ)
-    timer_id = root.after(FADE_TIME_MS, start_trial)
-
-
-def handle_keypress(event):
-    """Xử lý sự kiện nhấn phím Space hoặc Enter."""
-    global current_color, hit_count, error_count, time_start, rt_list, game_running
-
-    pressed_key = event.keysym
-
-    if not game_running and pressed_key == 'Return':
-        start_game(None)
-        return
-
-    if not game_running or current_color is None:
-        if current_color is None and (pressed_key == 'space' or pressed_key == 'Return'):
-             error_count += 1
-             SOUND_INCORRECT_PLAY()
-             status_label.config(text=f"Lượt: {current_trial}/{MAX_TRIALS} | ❌ NHẤN THỪA! (+{error_count} Lỗi)")
-        return
-
-    if pressed_key not in ['space', 'Return']:
-        return
-
-    if timer_id:
-        root.after_cancel(timer_id)
-
-    time_end = time.time()
-    reaction_time = (time_end - time_start) * 1000 
-    
-    is_correct = False
-    
-    if current_color == GO_COLOR_SPACE and pressed_key == 'space':
-        is_correct = True
-    elif current_color == GO_COLOR_ENTER and pressed_key == 'Return':
-        is_correct = True
-
-    if is_correct:
-        hit_count += 1
-        rt_list.append(reaction_time)
-        SOUND_CORRECT_PLAY()
-        status_label.config(text=f"Lượt: {current_trial}/{MAX_TRIALS} | ✔️ HIT! RT: {reaction_time:.2f}ms")
+        super().__init__()
+        self.size = 50
+        self.color = COLOR_GREEN
+        self.image = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
+        self.image.fill((0, 0, 0, 0))
+        points = [
+            (self.size // 4, 0), (self.size * 3 // 4, 0),
+            (self.size, self.size), (0, self.size)
+        ]
+        pygame.draw.polygon(self.image, self.color, points)
         
+        self.current_lane = PLAYER_LANE
+        self.rect = self.image.get_rect()
+        self.set_lane_position()
+        self.rect.bottom = SCREEN_HEIGHT - 70
+        self.health = MAX_HEALTH
+        self.invulnerable_time = 0
+
+    def set_lane_position(self):
+        # Tính toán vị trí X dựa trên làn đường
+        center_x = (self.current_lane * LANE_WIDTH) + (LANE_WIDTH // 2)
+        self.rect.centerx = center_x
+        
+    def move_lane(self, direction):
+        """Di chuyển xe sang làn trái (-1) hoặc làn phải (+1) nếu hợp lệ."""
+        new_lane = self.current_lane + direction
+        if 0 <= new_lane <= 2:
+            self.current_lane = new_lane
+            self.set_lane_position()
+        
+    def update(self): # KHÔNG CẦN NHẬN 'keys' NỮA
+        # Chỉ xử lý trạng thái bất tử và hiển thị
+        if self.invulnerable_time > 0:
+            self.invulnerable_time -= clock.get_time()
+            if self.invulnerable_time % 200 < 100:
+                self.image.set_alpha(100)
+            else:
+                self.image.set_alpha(255)
+        else:
+            self.image.set_alpha(255)
+            
+    def take_hit(self):
+        if self.invulnerable_time <= 0:
+            self.health -= 1
+            self.invulnerable_time = 1500
+            return True
+        return False
+
+# --- RoadObject Classes (Logic Unchanged) ---
+class RoadObject(pygame.sprite.Sprite):
+    def __init__(self, lane, size, color):
+        super().__init__()
+        self.size = size
+        self.speed = GAME_SPEED
+        self.image = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
+        self.rect = self.image.get_rect()
+        
+        center_x = (lane * LANE_WIDTH) + (LANE_WIDTH // 2)
+        self.rect.centerx = center_x
+        self.rect.bottom = -50 
+
+    def update(self):
+        self.rect.y += self.speed
+        if self.rect.top > SCREEN_HEIGHT:
+            self.kill()
+
+class OtherCar(RoadObject):
+    def __init__(self, lane):
+        size = 70
+        color = random.choice([COLOR_RED, COLOR_BLUE, COLOR_GREY])
+        super().__init__(lane, size, color)
+        self.image.fill((0, 0, 0, 0))
+        pygame.draw.rect(self.image, color, self.image.get_rect(), border_radius=5)
+        pygame.draw.rect(self.image, COLOR_WHITE, (size//4, size//4, size//2, size//3))
+
+class Collectible(RoadObject):
+    def __init__(self, lane):
+        size = SHAPE_SIZE
+        self.shape = random.choice(COLLECTIBLE_SHAPES)
+        self.color_name, self.color_rgb = random.choice(list(COLLECTIBLE_COLORS.items()))
+        super().__init__(lane, size, self.color_rgb)
+        self.draw_shape()
+
+    def draw_shape(self):
+        self.image.fill((0, 0, 0, 0))
+        center = (self.size // 2, self.size // 2)
+        
+        if self.shape == "CIRCLE":
+            pygame.draw.circle(self.image, self.color_rgb, center, self.size // 2)
+        elif self.shape == "SQUARE":
+            pygame.draw.rect(self.image, self.color_rgb, (0, 0, self.size, self.size))
+        elif self.shape == "TRIANGLE":
+            points = [
+                (self.size // 2, 0), 
+                (0, self.size), 
+                (self.size, self.size)
+            ]
+            pygame.draw.polygon(self.image, self.color_rgb, points)
+            
+    @property
+    def identifier(self):
+        return f"{self.color_name}_{self.shape}"
+
+# --- Helper Functions (DRAWING) ---
+
+road_line_pos = 0
+def draw_road(screen):
+    global road_line_pos, GAME_SPEED
+    
+    screen.fill((50, 50, 50))
+    road_line_pos = (road_line_pos + GAME_SPEED) % 50 
+    
+    num_dashes = SCREEN_HEIGHT // 50 + 2
+    for i in range(num_dashes):
+        y = (i * 50 + road_line_pos) - 50 
+        pygame.draw.rect(screen, COLOR_WHITE, (LANE_WIDTH - 5, y, 10, 30))
+        pygame.draw.rect(screen, COLOR_WHITE, (LANE_WIDTH * 2 - 5, y, 10, 30))
+        pygame.draw.rect(screen, COLOR_YELLOW, (SCREEN_WIDTH // 2 - 10, y, 5, 30))
+        pygame.draw.rect(screen, COLOR_YELLOW, (SCREEN_WIDTH // 2 + 5, y, 5, 30))
+
+
+def create_random_object(player_rect):
+    lane = random.randint(0, 2)
+    if random.random() < 0.3:
+        return OtherCar(lane)
     else:
-        error_count += 1
-        SOUND_INCORRECT_PLAY()
-        status_label.config(text=f"Lượt: {current_trial}/{MAX_TRIALS} | ❌ LỖI PHÍM! (+{error_count} Lỗi)")
+        return Collectible(lane)
 
-    # Xóa tín hiệu sau phản ứng
-    canvas.delete("all")
-    current_color = None
+def draw_hud(screen, health, score, target):
+    # Health
+    health_text = font_medium.render("HEALTH:", True, COLOR_WHITE)
+    screen.blit(health_text, (10, 10))
+    for i in range(MAX_HEALTH):
+        color = COLOR_RED if i < health else COLOR_GREY
+        pygame.draw.circle(screen, color, (150 + i * 30, 25), 10)
 
-    if game_running:
-        root.after(FADE_TIME_MS, start_trial)
-
-def show_start_screen():
-    """Hiển thị màn hình bắt đầu với luật chơi."""
-    canvas.config(width=700, height=400) # Cập nhật kích thước canvas
-    canvas.delete("all")
+    # Score
+    score_text = font_large.render(f"{score}", True, COLOR_WHITE)
+    screen.blit(score_text, score_text.get_rect(center=(SCREEN_WIDTH // 2, 35)))
     
-    rule_text = (
-        "LUẬT CHƠI\n\n"
-        "1. XANH (Blue) → Nhấn: SPACE\n"
-        "2. ĐỎ (Red)   → Nhấn: ENTER\n\n"
-        "Mục tiêu: Phản ứng nhanh và chính xác!\n"
-    )
+    # Target (Focus Objective)
+    target_label = font_medium.render("COLLECT TARGET:", True, COLOR_YELLOW)
+    screen.blit(target_label, (10, 60))
+    target_text = font_medium.render(target.replace("_", " "), True, COLOR_YELLOW)
+    screen.blit(target_text, (10, 100))
+
+def draw_menu_screen(screen):
+    screen.fill(COLOR_BLACK)
     
-    # ĐÃ SỬA: Tăng kích thước font luật chơi
-    canvas.create_text(350, 200, text=rule_text, fill="white", 
-                       font=("Arial", 36, "bold"), tags="info", justify='center')
+    title_text = font_large.render("LANE MASTER", True, COLOR_YELLOW)
+    subtitle_text = font_medium.render("FOCUS DRIVE", True, COLOR_WHITE)
     
-    status_label.config(text="")
-    start_button.place(relx=0.5, rely=0.85, anchor=tk.CENTER)
-    canvas.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+    screen.blit(title_text, title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 200)))
+    screen.blit(subtitle_text, subtitle_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 140)))
 
-def start_game(event):
-    """Thiết lập các biến và bắt đầu vòng lặp game."""
-    global game_running, current_trial, hit_count, miss_count, error_count, rt_list
-    global current_color, timer_id, time_start
+    # Button positions
+    button_start_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, SCREEN_HEIGHT // 2 - 50, 360, 70)
+    button_tips_rect = pygame.Rect(SCREEN_WIDTH // 2 - 180, SCREEN_HEIGHT // 2 + 50, 360, 70)
     
-    if game_running: return
+    # Draw buttons
+    pygame.draw.rect(screen, COLOR_GREEN, button_start_rect, border_radius=10)
+    pygame.draw.rect(screen, COLOR_PURPLE, button_tips_rect, border_radius=10)
 
-    # Ẩn nút Start
-    start_button.place_forget() 
-
-    # Reset biến
-    game_running = True
-    current_trial = 0
-    hit_count = miss_count = error_count = 0
-    rt_list = []
-    current_color = None
-    ReadSerial.max_attention = ReadSerial.attention 
+    # Button text
+    text_start = font_medium.render("START GAME", True, COLOR_WHITE)
+    text_tips = font_medium.render("FOCUS DRIVING TIPS", True, COLOR_WHITE)
     
-    # Cài đặt Canvas cho chế độ game (kích thước hình tròn)
-    canvas.config(width=CIRCLE_SIZE, height=CIRCLE_SIZE)
-    canvas.place(relx=0.5, rely=0.5, anchor=tk.CENTER) # Đặt canvas ở giữa
-
-    if attention_label.cget("text") == "Attention: N/A":
-        update_attention_display() 
-
-    status_label.config(text=f"Lượt: 0/{MAX_TRIALS} | Chuẩn bị...")
+    screen.blit(text_start, text_start.get_rect(center=button_start_rect.center))
+    screen.blit(text_tips, text_tips.get_rect(center=button_tips_rect.center))
     
-    if timer_id: root.after_cancel(timer_id)
-    timer_id = root.after(1000, start_trial)
+    return button_start_rect, button_tips_rect
 
-
-def stop_game(is_finished=False):
-    """Dừng trò chơi và hiển thị kết quả tổng hợp."""
-    global game_running, timer_id
-    game_running = False
+# Draw Focus Tips Screen with small buttons in the corners
+def draw_focus_driving_tips(screen):
+    screen.fill((50, 50, 100))
     
-    if timer_id: root.after_cancel(timer_id)
+    title = font_large.render("FOCUS DRIVING TIPS", True, COLOR_YELLOW)
+    screen.blit(title, title.get_rect(center=(SCREEN_WIDTH // 2, 80)))
     
-    canvas.delete("all")
+    tips = [
+        ("Scanning Field", "Always scan 3 zones: Target (top/sides), Obstacles (middle), and Next Lane (bottom)."),
+        ("Predictive Thinking", "Anticipate which lane will have an obstacle in the next 2 seconds. Don't react late."),
+        ("Selective Processing", "Force your brain to ignore 'wrong' collectibles and focus only on the required item."),
+        ("Timely Reaction", "Practice making quick, calculated lane change decisions."),
+    ]
     
-    # Tính toán kết quả
-    avg_rt = sum(rt_list) / len(rt_list) if rt_list else 0
-    total_error = miss_count + error_count
+    start_y = 180
+    row_gap = 130
     
-    # Thông báo kết quả
-    max_att_msg = f"Max Attention Đạt Được: {ReadSerial.max_attention}"
+    for i, (title_tip, content_tip) in enumerate(tips):
+        y_pos = start_y + i * row_gap
+        
+        # Tip Title
+        title_surf = font_medium.render(f"{i+1}. {title_tip}", True, COLOR_WHITE)
+        screen.blit(title_surf, (70, y_pos))
+        
+        # Tip Content
+        content_surf = font_small.render(content_tip, True, (200, 200, 255))
+        screen.blit(content_surf, (90, y_pos + 40))
+
+    # --- SMALL BUTTONS IN CORNERS ---
     
-    result_message = (
-        f"✅ HOÀN THÀNH {current_trial} LƯỢT!\n\n"
-        f"1. Tốc độ (Avg RT): {avg_rt:.2f} ms\n"
-        f"2. Hit (Đúng): {hit_count} lần\n"
-        f"3. Tổng Lỗi (Miss + Error): {total_error} lần\n"
-        f"   - Miss (Bỏ lỡ): {miss_count} lần\n"
-        f"   - Error (Sai phím/Nhấn thừa): {error_count} lần\n\n"
-        f"{max_att_msg}"
-    )
+    # 1. BACK TO MENU (Top Left)
+    button_back_rect = pygame.Rect(10, 10, 180, 50) 
+    pygame.draw.rect(screen, (100, 100, 100), button_back_rect, border_radius=10)
+    text_back = font_small.render("BACK TO MENU", True, COLOR_WHITE) 
+    screen.blit(text_back, text_back.get_rect(center=button_back_rect.center))
     
-    messagebox.showinfo("Kết quả Test", result_message)
+    # 2. EXIT GAME (Top Right)
+    button_exit_rect = pygame.Rect(SCREEN_WIDTH - 190, 10, 180, 50) 
+    pygame.draw.rect(screen, COLOR_RED, button_exit_rect, border_radius=10)
+    text_exit = font_small.render("EXIT GAME", True, COLOR_WHITE) 
+    screen.blit(text_exit, text_exit.get_rect(center=button_exit_rect.center))
+    
+    return button_back_rect, button_exit_rect
 
-    show_start_screen() 
+# Draw Pause Screen with Main Menu button in the corner
+def draw_pause_screen(screen):
+    s = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    s.fill((0, 0, 0, 180)) 
+    screen.blit(s, (0, 0))
 
-def close_game(event):
-    """Đóng cửa sổ."""
-    root.destroy()
+    text_paused = font_large.render("PAUSED", True, COLOR_WHITE)
+    screen.blit(text_paused, text_paused.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100)))
 
-# --- GÁN SỰ KIỆN PHÍM TẮT ---
-root.bind('<space>', handle_keypress) 
-root.bind('<Return>', handle_keypress) 
-root.bind('<Escape>', close_game)    
+    # 1. RESUME (Center)
+    button_resume_rect = pygame.Rect(SCREEN_WIDTH // 2 - 150, SCREEN_HEIGHT // 2, 300, 60)
+    pygame.draw.rect(screen, COLOR_GREEN, button_resume_rect, border_radius=10)
+    text_resume = font_medium.render("RESUME (ESC)", True, COLOR_WHITE)
+    screen.blit(text_resume, text_resume.get_rect(center=button_resume_rect.center))
+    
+    # 2. MAIN MENU (Top Left Corner)
+    button_menu_rect = pygame.Rect(10, 10, 180, 50)
+    pygame.draw.rect(screen, COLOR_RED, button_menu_rect, border_radius=10)
+    text_menu = font_small.render("MAIN MENU", True, COLOR_WHITE) 
+    screen.blit(text_menu, text_menu.get_rect(center=button_menu_rect.center))
+    
+    return button_resume_rect, button_menu_rect
 
-# Khởi tạo màn hình chờ
-show_start_screen()
+# Draw Game Over Screen (Unchanged)
+def draw_game_over_screen(screen, score):
+    s = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+    s.fill((0, 0, 0, 180)) 
+    screen.blit(s, (0, 0))
 
-# Chạy giao diện
-root.mainloop()
+    text_main = font_large.render("GAME OVER", True, COLOR_RED)
+    screen.blit(text_main, text_main.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100)))
+
+    text_score = font_medium.render(f"FINAL SCORE: {score}", True, COLOR_YELLOW)
+    screen.blit(text_score, text_score.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30)))
+
+    button_menu_rect = pygame.Rect(SCREEN_WIDTH // 2 - 120, SCREEN_HEIGHT // 2 + 50, 240, 50)
+    pygame.draw.rect(screen, COLOR_BLUE, button_menu_rect, border_radius=10)
+    text_menu = font_medium.render("MAIN MENU", True, COLOR_WHITE)
+    screen.blit(text_menu, text_menu.get_rect(center=button_menu_rect.center))
+    
+    return button_menu_rect
+
+
+# --- Game Loop (ĐÃ SỬA LỖI NHẢY LÀN) ---
+def game_loop():
+    game_state = GameState.MENU
+    running = True
+    score = 0
+    current_target = "RED_CIRCLE" 
+    last_spawn_time = pygame.time.get_ticks()
+    last_target_change = pygame.time.get_ticks()
+    
+    def reset_game():
+        nonlocal player, all_sprites, road_objects, score, current_target, last_spawn_time, last_target_change, GAME_SPEED
+        
+        player = PlayerCar()
+        all_sprites = pygame.sprite.Group()
+        road_objects = pygame.sprite.Group() 
+        all_sprites.add(player)
+        score = 0
+        current_target = f"{random.choice(list(COLLECTIBLE_COLORS.keys()))}_{random.choice(COLLECTIBLE_SHAPES)}"
+        current_time = pygame.time.get_ticks()
+        last_spawn_time = current_time
+        last_target_change = current_time
+        GAME_SPEED = 6
+
+    player, all_sprites, road_objects = PlayerCar(), pygame.sprite.Group(), pygame.sprite.Group()
+
+    while running:
+        current_time = pygame.time.get_ticks()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                sys.exit()
+                
+            if event.type == pygame.KEYDOWN:
+                # --- XỬ LÝ CHUYỂN LÀN Ở ĐÂY (KEYDOWN) ---
+                if game_state == GameState.PLAYING:
+                    if event.key == pygame.K_a:
+                        player.move_lane(-1) # Di chuyển sang trái
+                    elif event.key == pygame.K_d:
+                        player.move_lane(1) # Di chuyển sang phải
+                # ----------------------------------------
+                
+                if event.key == pygame.K_ESCAPE:
+                    if game_state == GameState.PLAYING:
+                        game_state = GameState.PAUSED
+                    elif game_state == GameState.PAUSED:
+                        game_state = GameState.PLAYING
+                        
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                mouse_pos = event.pos
+                
+                if game_state == GameState.MENU:
+                    start_rect, tips_rect = draw_menu_screen(screen)
+                    if start_rect.collidepoint(mouse_pos):
+                        reset_game()
+                        game_state = GameState.PLAYING
+                    elif tips_rect.collidepoint(mouse_pos):
+                        game_state = GameState.FOCUS_TIPS
+                        
+                elif game_state == GameState.FOCUS_TIPS:
+                    back_rect, exit_rect = draw_focus_driving_tips(screen) 
+                    if back_rect.collidepoint(mouse_pos):
+                        game_state = GameState.MENU
+                    elif exit_rect.collidepoint(mouse_pos):
+                        pygame.quit()
+                        sys.exit()
+                        
+                elif game_state == GameState.PAUSED:
+                    resume_rect, menu_rect = draw_pause_screen(screen)
+                    if resume_rect.collidepoint(mouse_pos):
+                        game_state = GameState.PLAYING
+                    elif menu_rect.collidepoint(mouse_pos):
+                        game_state = GameState.MENU
+                        
+                elif game_state == GameState.GAME_OVER:
+                    menu_rect = draw_game_over_screen(screen, score)
+                    if menu_rect.collidepoint(mouse_pos):
+                        game_state = GameState.MENU
+
+        # --- Logic Game ---
+        if game_state == GameState.PLAYING:
+            GAME_SPEED = 6 + (current_time // 10000) * 0.5 
+            
+            # Cập nhật trạng thái bất tử (chuyển động đã được xử lý ở event.KEYDOWN)
+            player.update() 
+            
+            if current_time - last_target_change > TARGET_CHANGE_INTERVAL:
+                new_target = current_target
+                while new_target == current_target:
+                    new_target = f"{random.choice(list(COLLECTIBLE_COLORS.keys()))}_{random.choice(COLLECTIBLE_SHAPES)}"
+                current_target = new_target
+                last_target_change = current_time
+
+            adjusted_spawn_interval = SPAWN_INTERVAL - (GAME_SPEED - 6) * 100
+            adjusted_spawn_interval = max(300, adjusted_spawn_interval)
+            
+            if current_time - last_spawn_time > adjusted_spawn_interval:
+                new_object = create_random_object(player.rect)
+                all_sprites.add(new_object)
+                road_objects.add(new_object)
+                last_spawn_time = current_time
+                
+            for obj in road_objects:
+                obj.speed = GAME_SPEED
+            road_objects.update()
+
+            hits = pygame.sprite.spritecollide(player, road_objects, True)
+            for obj in hits:
+                if isinstance(obj, OtherCar):
+                    if player.take_hit():
+                        score = max(0, score - 50)
+                        if player.health <= 0:
+                            game_state = GameState.GAME_OVER
+                            break
+                elif isinstance(obj, Collectible):
+                    if obj.identifier == current_target:
+                        score += 20
+                    else:
+                        score -= 5
+                        if player.take_hit():
+                            if player.health <= 0:
+                                game_state = GameState.GAME_OVER
+                                break
+
+        # --- Drawing ---
+        if game_state in [GameState.PLAYING, GameState.PAUSED, GameState.GAME_OVER]:
+            draw_road(screen)
+            all_sprites.draw(screen)
+            draw_hud(screen, player.health, score, current_target)
+
+            if game_state == GameState.PAUSED:
+                draw_pause_screen(screen)
+            elif game_state == GameState.GAME_OVER:
+                draw_game_over_screen(screen, score)
+
+        elif game_state == GameState.MENU:
+            draw_menu_screen(screen)
+        
+        elif game_state == GameState.FOCUS_TIPS:
+            draw_focus_driving_tips(screen)
+
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+while True:
+    game_loop()
