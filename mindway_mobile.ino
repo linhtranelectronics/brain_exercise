@@ -190,6 +190,7 @@ int poorSignal = -1;
 int attention = -1;
 int meditation = -1;
 int blink = -1;
+byte stateBluetooth = 0;
 
 bool ledActive = false;          // LED có đang sáng hay không
 unsigned long ledStartTime = 0;  // Thời điểm bật LED 
@@ -282,6 +283,9 @@ void displayOnLCD() {
   lcd.print(" B:");
   lcd.print(blink);
   lcd.print("   ");
+  lcd.setCursor(15, 1);
+  lcd.print(stateBluetooth);
+
 }
 
 unsigned long lastPrint = 0;
@@ -311,35 +315,48 @@ void setup() {
   lcd.print("MindWave ESP32");
   lcd.setCursor(0, 1);
   lcd.print("LCD 16x2 Ready");
-
+  delay(2000);
+  lcd.clear();
   // ==== UART2 init ====
   const unsigned long hc05Baud = 57600;
   Serial2.begin(hc05Baud, SERIAL_8N1, RX2_PIN, TX2_PIN);
   Serial.println("LCD + UART ready.");
 }
-
+bool sendData = false;
 void loop() {
+  stateBluetooth = digitalRead(STATE_PIN);
   // Nếu dùng dữ liệu thật:
-  // while (Serial2.available()) {
-  //   parseThinkGearByte(Serial2.read());
-  // }
+  while (Serial2.available()) {
+    parseThinkGearByte(Serial2.read());
+    sendData = true;
+  }
   updateLedPulse();
-  // Demo bằng random (như code của bạn)
-  if (millis() - lastPrint > 500) {
-    poorSignal = random(0, 100);
-    attention  = random(0, 100);
-    meditation = random(0, 100);
-    blink      = random(0, 2);
+  if (sendData == true && millis() - lastPrint > 500) {
+    // poorSignal = random(0, 100);
+    // attention  = random(0, 100);
+    // meditation = random(0, 100);
+    // blink      = random(0, 2);
+
 // Dùng snprintf để định dạng chuỗi nhanh hơn
     char logBuffer[50];
     snprintf(logBuffer, 50, "%d,%d,%d,%d", 
              poorSignal, attention, meditation, blink);
     
-    Serial.println(logBuffer); // Chỉ gọi Serial.println MỘT LẦN
+    Serial.println(logBuffer); 
 
     displayOnLCD();  // <-- hiển thị lên LCD
 
     triggerLedPulse(); // Bật LED nhấp nháy
+    sendData = false;
+    lastPrint = millis();
+  }
+  else if (millis() - lastPrint > 5000) {
+    // Nếu không có dữ liệu trong 5 giây, hiển thị trạng thái chờ
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Waiting for");
+    lcd.setCursor(0, 1);
+    lcd.print("data...");
     lastPrint = millis();
   }
 }
