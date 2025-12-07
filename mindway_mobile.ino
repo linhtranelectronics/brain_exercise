@@ -184,12 +184,15 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 const int RX2_PIN = 16;
 const int TX2_PIN = 17;
 const int STATE_PIN = 5;
-
+const int LED_PIN = 2;
 // ThinkGear values
 int poorSignal = -1;
 int attention = -1;
 int meditation = -1;
 int blink = -1;
+
+bool ledActive = false;          // LED có đang sáng hay không
+unsigned long ledStartTime = 0;  // Thời điểm bật LED 
 
 void parseThinkGearByte(uint8_t b) {
   const int MAX_PAYLOAD = 170;
@@ -261,23 +264,39 @@ void parseThinkGearByte(uint8_t b) {
 
 // ==== HIỂN THỊ LÊN LCD 16x2 ====
 void displayOnLCD() {
-  lcd.clear();
+  //lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("A:");
   lcd.print(attention);
+  lcd.print("   ");
   lcd.setCursor(7, 0);
   lcd.print(" M:");
   lcd.print(meditation);
+  lcd.print("   ");
 
   lcd.setCursor(0, 1);
   lcd.print("P:");
   lcd.print(poorSignal);
+  lcd.print("   ");
   lcd.setCursor(7, 1);
   lcd.print(" B:");
   lcd.print(blink);
+  lcd.print("   ");
 }
 
 unsigned long lastPrint = 0;
+
+void updateLedPulse() {
+  if (ledActive && (millis() - ledStartTime >= 100)) {
+    digitalWrite(LED_PIN, LOW);
+    ledActive = false;
+  }
+}
+void triggerLedPulse() {
+  digitalWrite(LED_PIN, HIGH);
+  ledActive = true;
+  ledStartTime = millis();
+}
 
 void setup() {
   Serial.begin(115200);
@@ -304,7 +323,7 @@ void loop() {
   // while (Serial2.available()) {
   //   parseThinkGearByte(Serial2.read());
   // }
-
+  updateLedPulse();
   // Demo bằng random (như code của bạn)
   if (millis() - lastPrint > 500) {
     poorSignal = random(0, 100);
@@ -320,7 +339,7 @@ void loop() {
 
     displayOnLCD();  // <-- hiển thị lên LCD
 
-   // digitalWrite(2, !digitalRead(2));
+    triggerLedPulse(); // Bật LED nhấp nháy
     lastPrint = millis();
   }
 }

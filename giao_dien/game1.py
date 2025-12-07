@@ -1,8 +1,5 @@
 import pygame
 import random
-# Không cần import sys nữa vì chúng ta không gọi sys.exit()
-
-
 
 # --- Game Constants ---
 SCREEN_WIDTH = 800
@@ -18,224 +15,214 @@ GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 BLUE = (0, 100, 255)
 
-# --- Game Setup ---
-# Khởi tạo các biến global cần thiết
-# Khởi tạo màn hình, clock, và fonts chỉ một lần khi hàm start_game_1 được gọi
-screen = None 
+# --- Game Globals ---
+screen = None
 clock = None
 font_large = None
 font_medium = None
 font_small = None
 
-# --- Sound Setup (Game Over Music ONLY) ---
+# --- Sound Setup ---
 SOUNDS_LOADED = False
 try:
     pygame.mixer.init()
     SOUNDS_LOADED = True
 except pygame.error:
-    print("Warning: Failed to initialize audio mixer. Game will run without Game Over music.")
+    print("Warning: Audio init failed.")
 
-# --- Utility Functions ---
-
+# --- Utility ---
 def draw_text(surface, text, font, color, x, y):
-    """Vẽ chữ lên màn hình."""
     text_surface = font.render(text, True, color)
-    text_rect = text_surface.get_rect()
-    text_rect.center = (x, y)
-    surface.blit(text_surface, text_rect)
+    rect = text_surface.get_rect(center=(x, y))
+    surface.blit(text_surface, rect)
 
+# --- GAME START SCREEN (NEW) ---
+def start_instruction_screen():
+    """Hiển thị màn hình hướng dẫn (Start Screen) trước khi vào game."""
+    global screen, clock, font_large, font_medium, font_small
+
+    show_screen = True
+
+    while show_screen:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    return True
+                if event.key == pygame.K_ESCAPE:
+                    return False
+
+        screen.fill(BLACK)
+
+        draw_text(screen, "ARITHMETIC DASH", font_large, YELLOW, SCREEN_WIDTH / 2, 100)
+        draw_text(screen, "How to Play:", font_medium, WHITE, SCREEN_WIDTH / 2, 200)
+        draw_text(screen, "- You will see a math equation.", font_small, WHITE, SCREEN_WIDTH / 2, 260)
+        draw_text(screen, "- Type the correct answer (0-9) quickly!", font_small, WHITE, SCREEN_WIDTH / 2, 300)
+        draw_text(screen, "- You have limited time for each question.", font_small, WHITE, SCREEN_WIDTH / 2, 340)
+
+        draw_text(screen, "Press SPACE to start", font_small, GREEN, SCREEN_WIDTH / 2, 450)
+        draw_text(screen, "Press ESC to exit", font_small, RED, SCREEN_WIDTH / 2, 490)
+
+        pygame.display.flip()
+        clock.tick(30)
+
+    return False
+
+# --- GAME OVER SCREEN ---
 def game_over_screen(score):
-    """Màn hình Game Over. Trả về True nếu muốn Restart, False nếu muốn Quit."""
     global screen, clock, font_large, font_medium, font_small, SOUNDS_LOADED
     
     if SOUNDS_LOADED:
         try:
-            # Lưu ý: Cần đảm bảo file 'Downloads/gameover.mp3' tồn tại
-            pygame.mixer.music.load("Downloads/gameover.mp3") 
+            pygame.mixer.music.load("Downloads/gameover.mp3")
             pygame.mixer.music.play(-1)
-        except pygame.error as e:
-            print(f"Error loading music: {e}")
+        except:
+            pass
 
     running = True
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # Đóng cửa sổ game và trả về False để thoát vòng lặp chính
                 if SOUNDS_LOADED: pygame.mixer.music.stop()
-                return False 
+                return False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
-                    # Restart game
                     if SOUNDS_LOADED: pygame.mixer.music.stop()
-                    return True 
+                    return True
                 if event.key == pygame.K_ESCAPE:
-                    # Thoát game và trả về False
                     if SOUNDS_LOADED: pygame.mixer.music.stop()
                     return False
-        
+
         screen.fill(BLACK)
         draw_text(screen, "TIME'S UP!", font_large, RED, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 4)
         draw_text(screen, f"Score: {score}", font_medium, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2)
-        draw_text(screen, "Press [SPACE] to Restart", font_small, YELLOW, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4)
-        draw_text(screen, "Press [ESC] or [X] to Return to Main App", font_small, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3 / 4 + 40)
-        
-        pygame.display.flip()
-        clock.tick(15)
-        
-    return False # Trường hợp vòng lặp bị thoát bất ngờ
+        draw_text(screen, "Press SPACE to Restart", font_small, YELLOW, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3/4)
+        draw_text(screen, "Press ESC to Exit", font_small, WHITE, SCREEN_WIDTH / 2, SCREEN_HEIGHT * 3/4 + 40)
 
-# --- Game Logic Functions ---
+        pygame.display.flip()
+        clock.tick(20)
+    
+    return False
+
+# --- Equation Generator ---
 def generate_equation(score):
-    """Tạo ra một phương trình mới."""
-    # Giữ nguyên logic phức tạp của bạn
     if score < 10:
         a = random.randrange(1, 9)
         b = random.randrange(1, 9)
-        op = random.choice(['+'])
+        op = '+'
     elif score < 25:
         a = random.randrange(5, 15)
         b = random.randrange(1, 10)
         op = random.choice(['+', '-'])
     else:
-        a = random.randrange(5, 20)
-        b = random.randrange(1, 15)
-        op = random.choice(['+', '-', '*'])
-
-    if op == '+':
-        result = a + b
-    elif op == '-':
-        if a < b: a, b = b, a 
-        result = a - b
-    elif op == '*':
         a = random.randrange(1, 6)
         b = random.randrange(1, 6)
+        op = random.choice(['+', '-', '*'])
+
+    if op == '+': result = a + b
+    elif op == '-':
+        if a < b: a, b = b, a
+        result = a - b
+    else:  # multiply
         result = a * b
-    
+
     if result < 0 or result > 9:
         return generate_equation(score)
-        
-    equation_str = f"{a} {op} {b}"
-    return equation_str, result
 
-# --- Main Game Loop ---
+    return f"{a} {op} {b}", result
+
+# --- MAIN GAME LOOP ---
 def main_game():
-    """Chạy vòng lặp chính của trò chơi."""
-    global screen, clock, SOUNDS_LOADED
-    
-    if SOUNDS_LOADED:
-        pygame.mixer.music.stop()
+    global screen, clock
 
     score = 0
     MAX_TIME_MS = 2000
-    time_left_ms = MAX_TIME_MS
     start_time = pygame.time.get_ticks()
-    
+
     equation_str, correct_answer = generate_equation(score)
     input_received = False
-    
     game_running = True
+
     while game_running:
-        current_time = pygame.time.get_ticks()
-        
-        elapsed_time = current_time - start_time
-        time_left_ms = MAX_TIME_MS - elapsed_time
-        
-        # 1. Input/Events
+        current = pygame.time.get_ticks()
+        time_left = MAX_TIME_MS - (current - start_time)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                # Dừng vòng lặp game và trả về False, không thoát ứng dụng
-                game_running = False 
-                break 
-            
+                game_running = False
+                break
+
             if event.type == pygame.KEYDOWN:
-                key_name = pygame.key.name(event.key)
-                
-                if key_name.isdigit():
-                    player_answer = int(key_name)
-                    
-                    if player_answer == correct_answer:
+                if pygame.key.name(event.key).isdigit():
+                    if int(pygame.key.name(event.key)) == correct_answer:
                         score += 1
                         input_received = True
                     else:
                         game_running = False
                         break
-        
-        # 2. Update Game State
-        if not game_running: # Xử lý thoát game ngay lập tức
-             break
-             
-        # Check for Time Over
-        if time_left_ms <= 0:
-            game_running = False
+
+        if not game_running:
             break
 
-        # Check for successful input
+        if time_left <= 0:
+            break
+
         if input_received:
             equation_str, correct_answer = generate_equation(score)
             MAX_TIME_MS = max(500, MAX_TIME_MS - 50)
             start_time = pygame.time.get_ticks()
             input_received = False
-        
-        # 3. Draw/Render
-        screen.fill(BLACK)
-        
-        draw_text(screen, f"Score: {score}", font_medium, WHITE, SCREEN_WIDTH / 2, 50)
-        draw_text(screen, equation_str + " = ?", font_large, YELLOW, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 50)
-        draw_text(screen, "Type the single-digit answer (0-9) fast!", font_small, GREEN, SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 50)
 
-        # Draw Timer Bar
+        # DRAW
+        screen.fill(BLACK)
+        draw_text(screen, f"Score: {score}", font_medium, WHITE, SCREEN_WIDTH/2, 50)
+        draw_text(screen, equation_str + " = ?", font_large, YELLOW, SCREEN_WIDTH/2, SCREEN_HEIGHT/2)
+
+        # Timer Bar
         BAR_WIDTH = SCREEN_WIDTH * 0.8
         BAR_HEIGHT = 20
-        time_ratio = max(0, time_left_ms / MAX_TIME_MS)
-        current_bar_width = BAR_WIDTH * time_ratio
-        
-        if time_ratio > 0.6:
-            bar_color = BLUE
-        elif time_ratio > 0.3:
-            bar_color = YELLOW
-        else:
-            bar_color = RED
-            
-        bg_rect = pygame.Rect((SCREEN_WIDTH - BAR_WIDTH) / 2, SCREEN_HEIGHT - 100, BAR_WIDTH, BAR_HEIGHT)
-        pygame.draw.rect(screen, WHITE, bg_rect, 2)
-        fg_rect = pygame.Rect((SCREEN_WIDTH - BAR_WIDTH) / 2, SCREEN_HEIGHT - 100, current_bar_width, BAR_HEIGHT)
-        pygame.draw.rect(screen, bar_color, fg_rect)
-        
+        ratio = max(0, time_left / MAX_TIME_MS)
+        color = BLUE if ratio > 0.6 else YELLOW if ratio > 0.3 else RED
+
+        pygame.draw.rect(screen, WHITE,
+            pygame.Rect((SCREEN_WIDTH - BAR_WIDTH)/2, SCREEN_HEIGHT - 120, BAR_WIDTH, BAR_HEIGHT), 2)
+        pygame.draw.rect(screen, color,
+            pygame.Rect((SCREEN_WIDTH - BAR_WIDTH)/2, SCREEN_HEIGHT - 120, BAR_WIDTH * ratio, BAR_HEIGHT))
+
         pygame.display.flip()
         clock.tick(60)
 
-    # Game Over logic
-    if not game_running and time_left_ms <= 0:
+    if time_left <= 0:
         return game_over_screen(score)
-    # Nếu thoát bằng cách nhấn X (pygame.QUIT) hoặc ESC, game_running là False và ta thoát luôn
+
     return False
 
+# --- PUBLIC ENTRY POINT ---
 def start_game_1():
     pygame.init()
     pygame.font.init()
 
-    global font_large, font_medium, font_small, clock, screen
-    font_large = pygame.font.Font(None, 74)
-    font_medium = pygame.font.Font(None, 36)
-    font_small = pygame.font.Font(None, 24)
-    # Khởi tạo các biến Pygame khi hàm được gọi
-    if screen is None:
-        screen = pygame.display.set_mode(SCREEN_SIZE)
-        pygame.display.set_caption(CAPTION)
-        clock = pygame.time.Clock()
-        font_large = pygame.font.Font(None, 100)
-        font_medium = pygame.font.Font(None, 48)
-        font_small = pygame.font.Font(None, 36)
-        
+    global screen, clock, font_large, font_medium, font_small
+    screen = pygame.display.set_mode(SCREEN_SIZE)
+    pygame.display.set_caption(CAPTION)
+
+    clock = pygame.time.Clock()
+    font_large = pygame.font.Font(None, 80)
+    font_medium = pygame.font.Font(None, 50)
+    font_small = pygame.font.Font(None, 32)
+
+    # --- NEW: Start Screen ---
+    if not start_instruction_screen():
+        pygame.quit()
+        return
+
+    # --- Game Loop ---
     running = True
     while running:
-        should_restart = main_game()
-        if not should_restart:
+        restart = main_game()
+        if not restart:
             running = False
 
-    # Dọn dẹp Pygame trước khi trả lại quyền điều khiển
     pygame.quit()
-    # Không gọi sys.exit() ở đây!
     return
-
-# Bỏ vòng lặp while True: main_game() ở cuối file để nó không tự chạy khi import

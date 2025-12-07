@@ -12,7 +12,7 @@ import threading # Giữ lại thư viện threading
 from game1 import start_game_1
 from game2 import start_game_2
 from game3 import start_game_3  
-
+from game4 import start_game_4
 
 # --- HẰNG SỐ CẤU HÌNH ---
 WINDOW_WIDTH = 670
@@ -32,6 +32,9 @@ selected_com_port = ""
 # Biến cờ để kiểm soát luồng đọc serial
 is_reading_serial = False 
 serial_thread = None
+
+# Khóa để bảo vệ truy cập serial_data và csv_writer giữa các luồng
+serial_lock = threading.Lock()
 
 # Biến lưu trữ dữ liệu đọc được
 serial_data = {
@@ -77,7 +80,7 @@ def toggle_recording():
             csv_writer.writerow(['Timestamp', 'PoorQuality', 'Attention', 'Meditation', 'Blink'])
             
             is_recording = True
-            record_button.config(text="Dừng Ghi (CSV)", style='Disconnect.TButton')
+            record_button.config(text="Dừng Ghi", style='Disconnect.TButton')
             messagebox.showinfo("Thông báo", f"Bắt đầu ghi dữ liệu vào: {filename}")
         
         except Exception as e:
@@ -85,12 +88,16 @@ def toggle_recording():
             is_recording = False 
     else:
         # DỪNG GHI
-        if csv_file:
-            csv_file.close()
-            csv_file = None
-        is_recording = False
-        record_button.config(text="Ghi Dữ Liệu (CSV)", style='Connect.TButton')
-        messagebox.showinfo("Thông báo", "Đã dừng ghi dữ liệu CSV.")
+        try:
+            if csv_file:
+                csv_file.close()
+                filename = csv_file.name
+                csv_file = None
+            is_recording = False
+            record_button.config(text="Ghi Dữ Liệu", style='Connect.TButton')
+            messagebox.showinfo("Thông báo", f"Đã dừng ghi dữ liệu CSV. \n File đã được lưu: {filename}")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi đóng file CSV: {e}")
 
 def write_data_to_csv():
     """Ghi dữ liệu hiện tại vào file CSV nếu đang ở trạng thái ghi."""
@@ -99,18 +106,30 @@ def write_data_to_csv():
     if is_recording and csv_writer:
         try:
             current_time = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            # Đọc dữ liệu serial dưới khóa để nhất quán
+            with serial_lock:
+                poor = serial_data['poor']
+                attention = serial_data['attention']
+                meditation = serial_data['meditation']
+                blink = serial_data['blink']
             
             row = [
                 current_time,
-                serial_data['poor'],
-                serial_data['attention'],
-                serial_data['meditation'],
-                serial_data['blink']
+                poor,
+                attention,
+                meditation,
+                blink
             ]
             csv_writer.writerow(row)
+            # Flush để đảm bảo dữ liệu ghi kịp thời
+            csv_file.flush()
         except Exception as e:
             print(f"Lỗi khi ghi vào file CSV: {e}")
-            toggle_recording() 
+            # Không auto-toggle recording vào trạng thái dừng; thay vào đó báo lỗi và tắt ghi an toàn
+            try:
+                toggle_recording()
+            except Exception:
+                pass
 
 # --- CẤU HÌNH CỬA SỔ CHÍNH ---
 def setup_main_window():
@@ -144,18 +163,19 @@ def serial_reader_thread():
             
         try:
             if serial_port_object.in_waiting > 0:
-                line = serial_port_object.readline().decode('utf-8').strip()
+                line = serial_port_object.readline().decode('utf-8', errors='ignore').strip()
 
                 if line:
                     try:
                         values = line.split(',')
                         if len(values) == 4:
-                            # Cập nhật dữ liệu vào biến toàn cục
+                            # Cập nhật dữ liệu vào biến toàn cục dưới khóa
                             data = [int(v) for v in values]
-                            serial_data['poor'] = data[0]
-                            serial_data['attention'] = data[1]
-                            serial_data['meditation'] = data[2]
-                            serial_data['blink'] = data[3]
+                            with serial_lock:
+                                serial_data['poor'] = data[0]
+                                serial_data['attention'] = data[1]
+                                serial_data['meditation'] = data[2]
+                                serial_data['blink'] = data[3]
                             # print(f"Đọc Serial: {serial_data}") # Debug
                     except ValueError:
                         print(f"Lỗi chuyển đổi giá trị: {line}")
@@ -177,9 +197,12 @@ def update_gui_data():
     """Cập nhật GUI và ghi CSV (Chạy trên luồng chính)."""
     
     if is_connected:
-        # Chỉ cập nhật GUI dựa trên dữ liệu đã đọc được ở luồng nền
-        attention_var.set(f"{serial_data['attention']}%")
-        meditation_var.set(f"{serial_data['meditation']}%")
+        # Đọc dữ liệu dưới khóa để đảm bảo nhất quán
+        with serial_lock:
+            att = serial_data['attention']
+            med = serial_data['meditation']
+        attention_var.set(f"{att}%")
+        meditation_var.set(f"{med}%")
         
         # GHI DỮ LIỆU VÀO CSV
         write_data_to_csv()
@@ -271,23 +294,37 @@ def connect_disconnect():
 
 
 def run_game(game_number):
-    """Hàm xử lý sự kiện khi nhấn nút Game."""
+    """Hàm xử lý sự kiện khi nhấn nút Game.
+    Thay đổi: không tự động dừng ghi khi bắt đầu game — cho phép ghi dữ liệu tiếp tục trong khi chơi.
+    Nếu game cần truy cập trực tiếp cổng serial, hãy đảm bảo game xử lý đồng bộ/khóa.
+    """
     if is_connected:
-        # Dừng ghi dữ liệu và luồng serial trước khi vào game
-        if is_recording:
-            toggle_recording()
-        
-        # DỪNG LUỒNG SERIAL (nếu cần thiết, tùy thuộc vào game)
-        # Trong trường hợp này, ta giả định game tự quản lý serial
-        
-        if game_number == 1:
-            # Lưu ý: Nếu game1.py cũng sử dụng cổng serial, bạn cần truyền đối tượng
-            # serial đã đóng hoặc quản lý việc mở lại cổng cẩn thận.
-            start_game_1()  # Gọi hàm chơi game 1 từ game1.py
-        elif game_number == 2:
-            start_game_2()  # Gọi hàm chơi game 2 từ game2.py
-        elif game_number == 3:
-            start_game_3()  # Gọi hàm chơi game 3 từ game3.py
+        # Nếu đang ghi, chỉ thông báo rằng ghi sẽ tiếp tục khi vào game
+        # if is_recording:
+        #     # Không dừng ghi — chỉ cảnh báo nhẹ
+        #     messagebox.showinfo("Thông báo", "Recording will continue while the game runs.")
+
+        def target_wrapper():
+            """Bao wrapper gọi hàm game tương ứng.
+            Nếu game cần truy cập serial_port_object, hãy đảm bảo game xử lý đồng bộ/khóa nếu cần."""
+            try:
+                if game_number == 1:
+                    start_game_1()
+                elif game_number == 2:
+                    start_game_2()
+                elif game_number == 3:
+                    start_game_3()
+                elif game_number == 4:
+                    start_game_4()
+            except Exception as e:
+                # Nếu game ném lỗi, hiện messagebox trên luồng chính an toàn bằng root.after
+                def show_err():
+                    messagebox.showerror("Game Error", f"An error occurred in game {game_number}: {e}")
+                root.after(0, show_err)
+
+        # Khởi chạy thread nền cho game (daemon để tự dừng cùng ứng dụng)
+        t = threading.Thread(target=target_wrapper, daemon=True)
+        t.start()
     else:
         messagebox.showwarning("Cảnh báo", "Vui lòng kết nối cổng COM trước khi chơi Game.")
 

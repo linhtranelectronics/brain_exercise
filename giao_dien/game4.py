@@ -3,14 +3,9 @@ import random
 import time
 import math
 
-# Initialize Pygame
-pygame.init()
 
 # --- General Settings ---
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-SCREEN = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Memory Card Matching Game")
+
 
 # Colors
 WHITE = (255, 255, 255)
@@ -23,10 +18,7 @@ RED = (255, 50, 50)
 COVER_COLOR = (44, 62, 80) # Card back color
 
 # Fonts
-FONT_XL = pygame.font.Font(None, 72)
-FONT_LG = pygame.font.Font(None, 48)
-FONT_MD = pygame.font.Font(None, 36)
-FONT_SM = pygame.font.Font(None, 24)
+
 
 # List of Card Characters (Letters)
 # Use the alphabet A-Z. Max 32 unique needed for 8x8 board.
@@ -352,11 +344,23 @@ class Menu:
 # --- Main Loop ---
 CHECK_MATCH_EVENT = pygame.USEREVENT + 1
 
-def main():
+def start_game_4():
+    global FONT_LG, FONT_MD, FONT_SM, FONT_XL
+    global SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN
     game_state = "MENU" # MENU, PLAYING
     current_game = None
     current_level = 1
     
+    # Initialize Pygame
+    pygame.init()
+    FONT_XL = pygame.font.Font(None, 72)
+    FONT_LG = pygame.font.Font(None, 48)
+    FONT_MD = pygame.font.Font(None, 36)
+    FONT_SM = pygame.font.Font(None, 24)
+    SCREEN_WIDTH = 800
+    SCREEN_HEIGHT = 600
+    SCREEN = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("Memory Card Matching Game")
     menu = Menu()
     
     clock = pygame.time.Clock()
@@ -413,7 +417,3 @@ def main():
 
     pygame.quit()
 
-while True:
-    # To use the pygame library, you need to install it:
-    # pip install pygame
-    main()
